@@ -1,0 +1,8 @@
+Task,DatasetSize,Time_ms
+Basic Statistics,1000000,7.4072
+Histogram,1000000,5.5865
+Sorting,1000000,266.182
+Pearson Correlation,1000000,4.6856
+Moving Average,1000000,19.5219
+Outlier Detection,1000000,1.5602
+Total,1000000,365.311

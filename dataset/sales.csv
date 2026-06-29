@@ -1,0 +1,17 @@
+Region,Product,Quantity,Price
+North,Laptop,12,3500
+North,Phone,25,1800
+South,Laptop,8,3500
+South,Phone,30,1800
+East,Laptop,10,3500
+East,Phone,20,1800
+West,Laptop,15,3500
+West,Phone,18,1800
+North,Tablet,14,1200
+South,Tablet,16,1200
+East,Tablet,12,1200
+West,Tablet,11,1200
+North,Monitor,9,800
+South,Monitor,7,800
+East,Monitor,13,800
+West,Monitor,10,800
