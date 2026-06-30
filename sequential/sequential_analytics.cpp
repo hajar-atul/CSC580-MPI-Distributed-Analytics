@@ -1,186 +1,364 @@
+/*
+ CSC580 Parallel Computing
+ Sequential Statistical Data Analytics Pipeline
+
+ This sequential version is used as the baseline for comparison with MPI.
+ It implements all required analytical tasks:
+ 1. Basic statistics
+ 2. Histogram generation
+ 3. Sorting
+ 4. Pearson correlation
+ 5. Moving average
+ 6. Outlier detection
+
+ Compile:
+ cl /EHsc /O2 sequential_analytics.cpp /Fe:sequential_analytics.exe
+
+ Run:
+ sequential_analytics.exe 1000000
+ sequential_analytics.exe 10000000
+ sequential_analytics.exe 100000000
+*/
+
 #include <iostream>
 #include <vector>
 #include <random>
 #include <chrono>
 #include <algorithm>
+#include <numeric>
 #include <cmath>
 #include <fstream>
-#include <numeric>
+#include <iomanip>
+#include <string>
 
 using namespace std;
+using namespace chrono;
 
-double getTimeMs(chrono::high_resolution_clock::time_point start,
-                 chrono::high_resolution_clock::time_point end) {
-    return chrono::duration<double, milli>(end - start).count();
+struct Statistics {
+    double mean;
+    double variance;
+    double stddev;
+    double minimum;
+    double maximum;
+};
+
+struct TaskTiming {
+    double generationTime;
+    double statisticsTime;
+    double histogramTime;
+    double sortingTime;
+    double correlationTime;
+    double movingAverageTime;
+    double outlierTime;
+    double totalTime;
+};
+
+double elapsedMs(high_resolution_clock::time_point start,
+                 high_resolution_clock::time_point end) {
+    return duration<double, milli>(end - start).count();
 }
 
-int main(int argc, char* argv[]) {
-    long long N = 1000000;
-    if (argc > 1) N = atoll(argv[1]);
-
-    cout << "Sequential Analytics Program\n";
-    cout << "Dataset size: " << N << "\n";
-
-    vector<double> data(N);
-    vector<double> data2(N);
+vector<double> generateData(size_t N) {
+    vector<double> data;
+    data.reserve(N);
 
     mt19937_64 rng(42);
     uniform_real_distribution<double> dist(0.0, 10000.0);
 
-    auto totalStart = chrono::high_resolution_clock::now();
-
-    for (long long i = 0; i < N; i++) {
-        data[i] = dist(rng);
-        data2[i] = data[i] * 0.8 + dist(rng) * 0.2;
+    for (size_t i = 0; i < N; i++) {
+        data.push_back(dist(rng));
     }
 
-    ofstream log("../results/sequential_results.csv", ios::app);
-    log << "Task,DatasetSize,Time_ms\n";
+    return data;
+}
 
-    // 1. Basic statistics
-    auto start = chrono::high_resolution_clock::now();
+vector<double> generateSecondColumn(const vector<double>& data) {
+    vector<double> data2;
+    data2.reserve(data.size());
 
-    double sum = accumulate(data.begin(), data.end(), 0.0);
-    double mean = sum / N;
-
-    double variance = 0.0;
-    for (double x : data) variance += (x - mean) * (x - mean);
-    variance /= N;
-
-    double stddev = sqrt(variance);
-    double minVal = *min_element(data.begin(), data.end());
-    double maxVal = *max_element(data.begin(), data.end());
-
-    auto end = chrono::high_resolution_clock::now();
-    double statsTime = getTimeMs(start, end);
-    log << "Basic Statistics," << N << "," << statsTime << "\n";
-
-    // 2. Histogram
-    start = chrono::high_resolution_clock::now();
-
-    int bins = 10;
-    vector<int> histogram(bins, 0);
+    mt19937_64 rng(99);
+    uniform_real_distribution<double> noise(0.0, 10000.0);
 
     for (double x : data) {
-        int bin = min((int)(x / 1000.0), bins - 1);
-        histogram[bin]++;
+        data2.push_back((0.75 * x) + (0.25 * noise(rng)));
     }
 
-    end = chrono::high_resolution_clock::now();
-    double histTime = getTimeMs(start, end);
-    log << "Histogram," << N << "," << histTime << "\n";
+    return data2;
+}
 
-    // 3. Sorting
-    start = chrono::high_resolution_clock::now();
+Statistics calculateStatistics(const vector<double>& data) {
+    Statistics stats;
 
+    double sum = accumulate(data.begin(), data.end(), 0.0);
+    stats.mean = sum / data.size();
+
+    double varianceSum = 0.0;
+    for (double value : data) {
+        varianceSum += (value - stats.mean) * (value - stats.mean);
+    }
+
+    stats.variance = varianceSum / data.size();
+    stats.stddev = sqrt(stats.variance);
+    stats.minimum = *min_element(data.begin(), data.end());
+    stats.maximum = *max_element(data.begin(), data.end());
+
+    return stats;
+}
+
+vector<size_t> generateHistogram(const vector<double>& data, int binCount) {
+    vector<size_t> histogram(binCount, 0);
+
+    double minRange = 0.0;
+    double maxRange = 10000.0;
+    double binWidth = (maxRange - minRange) / binCount;
+
+    for (double value : data) {
+        int binIndex = static_cast<int>((value - minRange) / binWidth);
+
+        if (binIndex < 0) {
+            binIndex = 0;
+        }
+
+        if (binIndex >= binCount) {
+            binIndex = binCount - 1;
+        }
+
+        histogram[binIndex]++;
+    }
+
+    return histogram;
+}
+
+vector<double> sortData(const vector<double>& data) {
     vector<double> sortedData = data;
     sort(sortedData.begin(), sortedData.end());
+    return sortedData;
+}
 
-    end = chrono::high_resolution_clock::now();
-    double sortTime = getTimeMs(start, end);
-    log << "Sorting," << N << "," << sortTime << "\n";
+double calculatePearsonCorrelation(const vector<double>& x,
+                                   const vector<double>& y) {
+    size_t N = x.size();
 
-    // 4. Pearson correlation
-    start = chrono::high_resolution_clock::now();
+    double sumX = 0.0;
+    double sumY = 0.0;
+    double sumXY = 0.0;
+    double sumX2 = 0.0;
+    double sumY2 = 0.0;
 
-    double sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
-
-    for (long long i = 0; i < N; i++) {
-        sumX += data[i];
-        sumY += data2[i];
-        sumXY += data[i] * data2[i];
-        sumX2 += data[i] * data[i];
-        sumY2 += data2[i] * data2[i];
+    for (size_t i = 0; i < N; i++) {
+        sumX += x[i];
+        sumY += y[i];
+        sumXY += x[i] * y[i];
+        sumX2 += x[i] * x[i];
+        sumY2 += y[i] * y[i];
     }
 
     double numerator = (N * sumXY) - (sumX * sumY);
     double denominator = sqrt(((N * sumX2) - (sumX * sumX)) *
                               ((N * sumY2) - (sumY * sumY)));
 
-    double correlation = numerator / denominator;
+    if (denominator == 0.0) {
+        return 0.0;
+    }
 
-    end = chrono::high_resolution_clock::now();
-    double corrTime = getTimeMs(start, end);
-    log << "Pearson Correlation," << N << "," << corrTime << "\n";
+    return numerator / denominator;
+}
 
-    // 5. Moving average
-    start = chrono::high_resolution_clock::now();
-
-    int window = 5;
+vector<double> calculateMovingAverage(const vector<double>& data, int windowSize) {
     vector<double> movingAverage;
 
+    if (data.size() < static_cast<size_t>(windowSize)) {
+        return movingAverage;
+    }
+
+    movingAverage.reserve(data.size() - windowSize + 1);
+
     double windowSum = 0.0;
-    for (long long i = 0; i < N; i++) {
+
+    for (size_t i = 0; i < data.size(); i++) {
         windowSum += data[i];
 
-        if (i >= window) windowSum -= data[i - window];
+        if (i >= static_cast<size_t>(windowSize)) {
+            windowSum -= data[i - windowSize];
+        }
 
-        if (i >= window - 1) {
-            movingAverage.push_back(windowSum / window);
+        if (i >= static_cast<size_t>(windowSize - 1)) {
+            movingAverage.push_back(windowSum / windowSize);
         }
     }
 
-    end = chrono::high_resolution_clock::now();
-    double movingTime = getTimeMs(start, end);
-    log << "Moving Average," << N << "," << movingTime << "\n";
+    return movingAverage;
+}
 
-    // 6. Outlier detection
-    start = chrono::high_resolution_clock::now();
+size_t detectOutliers(const vector<double>& data,
+                      double mean,
+                      double stddev) {
+    double lowerBound = mean - (3.0 * stddev);
+    double upperBound = mean + (3.0 * stddev);
 
-    int outlierCount = 0;
-    double lowerBound = mean - 3 * stddev;
-    double upperBound = mean + 3 * stddev;
+    size_t outlierCount = 0;
 
-    for (double x : data) {
-        if (x < lowerBound || x > upperBound) outlierCount++;
+    for (double value : data) {
+        if (value < lowerBound || value > upperBound) {
+            outlierCount++;
+        }
     }
 
-    end = chrono::high_resolution_clock::now();
-    double outlierTime = getTimeMs(start, end);
-    log << "Outlier Detection," << N << "," << outlierTime << "\n";
+    return outlierCount;
+}
 
-    auto totalEnd = chrono::high_resolution_clock::now();
-    double totalTime = getTimeMs(totalStart, totalEnd);
-    log << "Total," << N << "," << totalTime << "\n";
-    log.close();
+void saveTimingToCsv(const string& filename,
+                     size_t datasetSize,
+                     const TaskTiming& timing) {
+    bool fileExists = false;
 
-    cout << "\n=== Basic Statistics ===\n";
-    cout << "Mean: " << mean << "\n";
-    cout << "Variance: " << variance << "\n";
-    cout << "Standard Deviation: " << stddev << "\n";
-    cout << "Minimum: " << minVal << "\n";
-    cout << "Maximum: " << maxVal << "\n";
+    ifstream checkFile(filename);
+    if (checkFile.good()) {
+        fileExists = true;
+    }
+    checkFile.close();
 
-    cout << "\n=== Histogram ===\n";
-    for (int i = 0; i < bins; i++) {
-        cout << i * 1000 << "-" << ((i + 1) * 1000 - 1)
-             << ": " << histogram[i] << "\n";
+    ofstream file(filename, ios::app);
+
+    if (!fileExists) {
+        file << "DatasetSize,Generation_ms,BasicStatistics_ms,Histogram_ms,Sorting_ms,"
+             << "PearsonCorrelation_ms,MovingAverage_ms,OutlierDetection_ms,Total_ms\n";
     }
 
-    cout << "\n=== Sorting ===\n";
-    cout << "Smallest value: " << sortedData.front() << "\n";
-    cout << "Largest value: " << sortedData.back() << "\n";
+    file << fixed << setprecision(4)
+         << datasetSize << ","
+         << timing.generationTime << ","
+         << timing.statisticsTime << ","
+         << timing.histogramTime << ","
+         << timing.sortingTime << ","
+         << timing.correlationTime << ","
+         << timing.movingAverageTime << ","
+         << timing.outlierTime << ","
+         << timing.totalTime << "\n";
 
-    cout << "\n=== Pearson Correlation ===\n";
-    cout << "Correlation: " << correlation << "\n";
+    file.close();
+}
 
-    cout << "\n=== Moving Average ===\n";
-    cout << "First moving average: " << movingAverage.front() << "\n";
-    cout << "Last moving average: " << movingAverage.back() << "\n";
+void printSummary(size_t datasetSize,
+                  const Statistics& stats,
+                  const vector<size_t>& histogram,
+                  const vector<double>& sortedData,
+                  double correlation,
+                  const vector<double>& movingAverage,
+                  size_t outlierCount,
+                  const TaskTiming& timing) {
+    cout << fixed << setprecision(4);
 
-    cout << "\n=== Outlier Detection ===\n";
-    cout << "Outlier count: " << outlierCount << "\n";
+    cout << "\n========================================\n";
+    cout << " Sequential Statistical Analytics Result\n";
+    cout << "========================================\n";
+    cout << "Dataset size: " << datasetSize << "\n";
 
-    cout << "\n=== Timing ===\n";
-    cout << "Basic Statistics Time: " << statsTime << " ms\n";
-    cout << "Histogram Time: " << histTime << " ms\n";
-    cout << "Sorting Time: " << sortTime << " ms\n";
-    cout << "Pearson Correlation Time: " << corrTime << " ms\n";
-    cout << "Moving Average Time: " << movingTime << " ms\n";
-    cout << "Outlier Detection Time: " << outlierTime << " ms\n";
-    cout << "Total Time: " << totalTime << " ms\n";
+    cout << "\n[1] Basic Statistics\n";
+    cout << "Mean               : " << stats.mean << "\n";
+    cout << "Variance           : " << stats.variance << "\n";
+    cout << "Standard Deviation : " << stats.stddev << "\n";
+    cout << "Minimum            : " << stats.minimum << "\n";
+    cout << "Maximum            : " << stats.maximum << "\n";
 
-    cout << "\nResults saved to ../results/sequential_results.csv\n";
+    cout << "\n[2] Histogram\n";
+    for (size_t i = 0; i < histogram.size(); i++) {
+        int startRange = static_cast<int>(i * 1000);
+        int endRange = static_cast<int>(((i + 1) * 1000) - 1);
+        cout << setw(5) << startRange << " - " << setw(5) << endRange
+             << " : " << histogram[i] << "\n";
+    }
+
+    cout << "\n[3] Sorting\n";
+    cout << "Smallest value     : " << sortedData.front() << "\n";
+    cout << "Largest value      : " << sortedData.back() << "\n";
+    cout << "Median value       : " << sortedData[sortedData.size() / 2] << "\n";
+
+    cout << "\n[4] Pearson Correlation\n";
+    cout << "Correlation value  : " << correlation << "\n";
+
+    cout << "\n[5] Moving Average\n";
+    if (!movingAverage.empty()) {
+        cout << "First moving avg   : " << movingAverage.front() << "\n";
+        cout << "Last moving avg    : " << movingAverage.back() << "\n";
+    }
+
+    cout << "\n[6] Outlier Detection\n";
+    cout << "Outlier count      : " << outlierCount << "\n";
+
+    cout << "\n========================================\n";
+    cout << " Timing Result\n";
+    cout << "========================================\n";
+    cout << "Data Generation       : " << timing.generationTime << " ms\n";
+    cout << "Basic Statistics      : " << timing.statisticsTime << " ms\n";
+    cout << "Histogram             : " << timing.histogramTime << " ms\n";
+    cout << "Sorting               : " << timing.sortingTime << " ms\n";
+    cout << "Pearson Correlation   : " << timing.correlationTime << " ms\n";
+    cout << "Moving Average        : " << timing.movingAverageTime << " ms\n";
+    cout << "Outlier Detection     : " << timing.outlierTime << " ms\n";
+    cout << "Total Runtime         : " << timing.totalTime << " ms\n";
+    cout << "========================================\n";
+}
+
+int main(int argc, char* argv[]) {
+    size_t datasetSize = 1000000;
+
+    if (argc > 1) {
+        datasetSize = stoull(argv[1]);
+    }
+
+    const int histogramBins = 10;
+    const int movingAverageWindow = 5;
+
+    TaskTiming timing{};
+
+    auto totalStart = high_resolution_clock::now();
+
+    auto start = high_resolution_clock::now();
+    vector<double> data = generateData(datasetSize);
+    vector<double> secondColumn = generateSecondColumn(data);
+    auto end = high_resolution_clock::now();
+    timing.generationTime = elapsedMs(start, end);
+
+    start = high_resolution_clock::now();
+    Statistics stats = calculateStatistics(data);
+    end = high_resolution_clock::now();
+    timing.statisticsTime = elapsedMs(start, end);
+
+    start = high_resolution_clock::now();
+    vector<size_t> histogram = generateHistogram(data, histogramBins);
+    end = high_resolution_clock::now();
+    timing.histogramTime = elapsedMs(start, end);
+
+    start = high_resolution_clock::now();
+    vector<double> sortedData = sortData(data);
+    end = high_resolution_clock::now();
+    timing.sortingTime = elapsedMs(start, end);
+
+    start = high_resolution_clock::now();
+    double correlation = calculatePearsonCorrelation(data, secondColumn);
+    end = high_resolution_clock::now();
+    timing.correlationTime = elapsedMs(start, end);
+
+    start = high_resolution_clock::now();
+    vector<double> movingAverage = calculateMovingAverage(data, movingAverageWindow);
+    end = high_resolution_clock::now();
+    timing.movingAverageTime = elapsedMs(start, end);
+
+    start = high_resolution_clock::now();
+    size_t outlierCount = detectOutliers(data, stats.mean, stats.stddev);
+    end = high_resolution_clock::now();
+    timing.outlierTime = elapsedMs(start, end);
+
+    auto totalEnd = high_resolution_clock::now();
+    timing.totalTime = elapsedMs(totalStart, totalEnd);
+
+    printSummary(datasetSize, stats, histogram, sortedData, correlation,
+                 movingAverage, outlierCount, timing);
+
+    saveTimingToCsv("../results/sequential_results.csv", datasetSize, timing);
+
+    cout << "\nTiming saved to ../results/sequential_results.csv\n";
 
     return 0;
 }
