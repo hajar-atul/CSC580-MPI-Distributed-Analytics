@@ -393,7 +393,7 @@ int main(int argc, char* argv[]) {
         cout << "Total Runtime         : " << totalTime << " ms\n";
         cout << "========================================\n";
 
-        saveTimingToCsv("../results/mpi_results.csv", N, size, totalTime,
+        saveTimingToCsv("C:/MpiProject/CSC580-MPI-Distributed-Analytics/CSC580-MPI-Distributed-Analytics/results/mpi_results.csv", N, size, totalTime,
                         statTime, histogramTime, sortingTime,
                         correlationTime, movingAverageTime, outlierTime);
 
